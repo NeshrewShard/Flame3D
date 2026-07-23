@@ -943,8 +943,8 @@ scene.add(sunTarget);
 const sunLight = new THREE.DirectionalLight(0xffffff, SUN_INTENSITY_DEFAULT);
 sunLight.castShadow = true;
 sunLight.shadow.mapSize.set(4096, 4096);
-sunLight.shadow.bias = -0.00015;
-sunLight.shadow.normalBias = 0.015;
+sunLight.shadow.bias = -0.00025;
+sunLight.shadow.normalBias = 0.007;
 sunLight.shadow.camera.near = 0.5;
 sunLight.shadow.camera.far = SUN_DISTANCE * 2;
 sunLight.target = sunTarget;
@@ -13174,6 +13174,7 @@ function saveEditorSettings() {
     customObjectTemplates: serializeCustomObjectTemplates(),
     lodEnabled: quality.lodEnabled !== false,
     lodDist: quality.lodDist || 80,
+    keybinds: { ...keybinds },
     customObjectSort: _customObjectSort,
     bottomHeight: bottomPanelState.height,
     bottomCollapsed: bottomPanelState.collapsed,
@@ -13190,9 +13191,9 @@ function loadEditorSettings() {
       quality.renderDist = THREE.MathUtils.clamp(parseFloat(s.renderDist) || 150, 20, 500);
       qualityRenderDistInput.value = quality.renderDist;
     }
-    if (s.shadows) {
+    if (s.shadows != null) {
       applyShadowQuality(s.shadows);
-      qualityShadowsSelect.value = s.shadows;
+      if (qualityShadowsSelect) qualityShadowsSelect.value = s.shadows;
     }
     if (s.lightDist != null) {
       quality.lightDist = THREE.MathUtils.clamp(parseFloat(s.lightDist) || 60, 10, 200);
@@ -13214,6 +13215,10 @@ function loadEditorSettings() {
       if (statsEl) statsEl.checked = quality.showStats;
       const perfEl = document.getElementById('perf-stats');
       if (perfEl) perfEl.style.display = quality.showStats ? '' : 'none';
+    }
+    if (s.keybinds) {
+      Object.assign(keybinds, DEFAULT_KEYBINDS, s.keybinds);
+      syncKeybindButtons();
     }
     if (s.snapSize != null) {
       setSnap(s.snapSize);
@@ -13407,6 +13412,7 @@ function formatProjectDate(iso) {
 }
 
 let _userGuideOverlayEl = null;
+let _settingsOverlayEl = null;
 
 function closeUserGuideModal() {
   if (_userGuideOverlayEl) {
@@ -13415,9 +13421,133 @@ function closeUserGuideModal() {
   }
 }
 
+function closeSettingsModal() {
+  if (_settingsOverlayEl) {
+    _settingsOverlayEl.remove();
+    _settingsOverlayEl = null;
+  }
+}
+
+function openEditorSettingsModal() {
+  closeTransientMenus();
+  closeUserGuideModal();
+  closeSettingsModal();
+
+  const overlay = document.createElement('div');
+  overlay.style.position = 'fixed';
+  overlay.style.inset = '0';
+  overlay.style.zIndex = '100100';
+  overlay.style.background = 'rgba(6,10,14,0.78)';
+  overlay.style.backdropFilter = 'blur(4px)';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.innerHTML = `
+    <div style="width:min(960px,calc(100vw - 32px));max-height:min(84vh,820px);background:linear-gradient(180deg,rgba(10,16,22,0.98),rgba(12,18,26,0.96));border:1px solid rgba(143,180,215,0.18);border-radius:18px;box-shadow:0 36px 110px rgba(0,0,0,0.55);overflow:hidden;display:grid;grid-template-columns:minmax(240px,280px) minmax(0,1fr);">
+      <div style="padding:18px 16px 12px;border-right:1px solid rgba(143,180,215,0.12);display:flex;flex-direction:column;gap:12px;background:rgba(10,14,20,0.96)">
+        <div style="font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#89a1b5">Settings</div>
+        <div style="font-size:18px;font-weight:700;color:#e6edf3">Editor & Runtime</div>
+        <div style="font-size:11px;color:#9eb1c3;line-height:1.6">Adjust render, shadow, and editor defaults in one place. Changes apply immediately and persist across sessions.</div>
+        <button id="settings-close" type="button" style="margin-top:auto;padding:8px 12px;border:none;border-radius:10px;background:rgba(88,166,255,0.18);color:#e6edf3;cursor:pointer;font-size:12px">Close</button>
+      </div>
+      <div style="padding:18px;overflow:auto;display:grid;gap:16px;max-height:100%">
+        <div style="display:grid;gap:10px">
+          <div style="font-size:13px;font-weight:700;color:#c8d7ea">Render Quality</div>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Shadows</span><select id="settings-shadows" style="min-width:150px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"><option value="off">Off</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Render distance</span><input id="settings-render-dist" type="number" min="20" max="1000" step="10" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Light distance</span><input id="settings-light-dist" type="number" min="10" max="300" step="5" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Pixel scale</span><input id="settings-resolution-scale" type="number" min="0.5" max="2" step="0.1" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Show stats</span><input id="settings-show-stats" type="checkbox" style="transform:scale(1.1)"/></label>
+        </div>
+        <div style="display:grid;gap:10px">
+          <div style="font-size:13px;font-weight:700;color:#c8d7ea">Editor Defaults</div>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Snap size</span><input id="settings-snap-size" type="number" min="0" max="4" step="0.25" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Place sides</span><input id="settings-place-sides" type="number" min="3" max="64" step="1" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>2D Depth</span><input id="settings-place-depth" type="number" min="0" max="6" step="0.1" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+          <label style="display:flex;justify-content:space-between;align-items:center;gap:12px"><span>Place opacity</span><input id="settings-place-opacity" type="number" min="0.1" max="1" step="0.05" style="width:130px;padding:6px 8px;border-radius:8px;background:rgba(15,20,28,0.96);border:1px solid rgba(143,180,215,0.12);color:#e6edf3"/></label>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const closeBtn = overlay.querySelector('#settings-close');
+  const shadowSelect = overlay.querySelector('#settings-shadows');
+  const renderInput = overlay.querySelector('#settings-render-dist');
+  const lightInput = overlay.querySelector('#settings-light-dist');
+  const scaleInput = overlay.querySelector('#settings-resolution-scale');
+  const statsInput = overlay.querySelector('#settings-show-stats');
+  const snapInput = overlay.querySelector('#settings-snap-size');
+  const sidesInput = overlay.querySelector('#settings-place-sides');
+  const depthInput = overlay.querySelector('#settings-place-depth');
+  const opacityInput = overlay.querySelector('#settings-place-opacity');
+
+  if (shadowSelect) shadowSelect.value = quality.shadows;
+  if (renderInput) renderInput.value = quality.renderDist;
+  if (lightInput) lightInput.value = quality.lightDist;
+  if (scaleInput) scaleInput.value = quality.resolutionScale;
+  if (statsInput) statsInput.checked = quality.showStats;
+  if (snapInput) snapInput.value = state.snapSize;
+  if (sidesInput) sidesInput.value = state.placeSides;
+  if (depthInput) depthInput.value = state.place2DDepth;
+  if (opacityInput) opacityInput.value = state.placeOpacity;
+
+  shadowSelect?.addEventListener('change', e => {
+    applyShadowQuality(e.target.value);
+    saveEditorSettings();
+  });
+  renderInput?.addEventListener('change', e => {
+    quality.renderDist = THREE.MathUtils.clamp(parseFloat(e.target.value) || quality.renderDist, 20, 1000);
+    saveEditorSettings();
+  });
+  lightInput?.addEventListener('change', e => {
+    quality.lightDist = THREE.MathUtils.clamp(parseFloat(e.target.value) || quality.lightDist, 10, 300);
+    saveEditorSettings();
+  });
+  scaleInput?.addEventListener('change', e => {
+    applyResolutionScale(THREE.MathUtils.clamp(parseFloat(e.target.value) || quality.resolutionScale, 0.5, 2));
+    saveEditorSettings();
+  });
+  statsInput?.addEventListener('change', e => {
+    quality.showStats = !!e.target.checked;
+    const perfEl = document.getElementById('perf-stats');
+    if (perfEl) perfEl.style.display = quality.showStats ? '' : 'none';
+    saveEditorSettings();
+  });
+  snapInput?.addEventListener('change', e => {
+    setSnap(parseFloat(e.target.value) || 0);
+    saveEditorSettings();
+  });
+  sidesInput?.addEventListener('change', e => {
+    setPlacementSides(parseInt(e.target.value, 10) || state.placeSides);
+    saveEditorSettings();
+  });
+  depthInput?.addEventListener('change', e => {
+    setPlacementDepth(parseFloat(e.target.value) || state.place2DDepth);
+    saveEditorSettings();
+  });
+  opacityInput?.addEventListener('change', e => {
+    setPlacementOpacity(parseFloat(e.target.value) || state.placeOpacity);
+    saveEditorSettings();
+  });
+
+  closeBtn?.addEventListener('click', closeSettingsModal);
+  overlay.addEventListener('pointerdown', e => {
+    if (e.target === overlay) closeSettingsModal();
+  });
+  overlay.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeSettingsModal();
+  });
+
+  document.body.appendChild(overlay);
+  overlay.tabIndex = -1;
+  overlay.focus();
+  _settingsOverlayEl = overlay;
+}
+
 function _buildUserGuideCommandListHtml() {
-  return Object.keys(_commands).sort().map(name => {
-    const cmd = _commands[name] || {};
+  const commandRegistry = typeof _commands !== 'undefined' ? _commands : {};
+  return Object.keys(commandRegistry).sort().map(name => {
+    const cmd = commandRegistry[name] || {};
     return `
       <div style="padding:10px 12px;border:1px solid rgba(143,180,215,0.16);border-radius:10px;background:rgba(13,19,27,0.58)">
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap">
@@ -13428,6 +13558,82 @@ function _buildUserGuideCommandListHtml() {
       </div>
     `;
   }).join('');
+}
+
+async function _loadUserGuideReadmeSection() {
+  if (typeof fetch !== 'function') return null;
+  try {
+    const response = await fetch('./README.md');
+    if (!response.ok) return null;
+    const raw = await response.text();
+    const html = _markdownToHtml(raw);
+    return {
+      id: 'readme',
+      title: 'README',
+      kicker: 'Editor manual',
+      html,
+    };
+  } catch (err) {
+    console.warn('Failed to load README for user guide:', err);
+    return null;
+  }
+}
+
+function _formatMarkdownInline(text) {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.06);padding:0 3px;border-radius:3px">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener" style="color:#79c0ff;text-decoration:underline">$1</a>');
+}
+
+function _markdownToHtml(raw) {
+  const lines = raw.split(/\r?\n/);
+  const htmlParts = [];
+  let inList = false;
+  let paragraph = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    htmlParts.push(`<p style="margin:0 0 12px;color:#b8c7d6;line-height:1.65">${_formatMarkdownInline(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) {
+      flushParagraph();
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      if (inList) {
+        htmlParts.push('</ul>');
+        inList = false;
+      }
+      const level = heading[1].length;
+      const text = escapeHtml(heading[2]);
+      htmlParts.push(`<h${level} style="margin:0 0 10px;color:#e6edf3;font-size:${20 - (level - 1) * 2}px">${text}</h${level}>`);
+      continue;
+    }
+    const listMatch = line.match(/^[-*+]\s+(.*)$/);
+    if (listMatch) {
+      flushParagraph();
+      if (!inList) {
+        htmlParts.push('<ul style="margin:0 0 12px 18px;color:#b8c7d6;line-height:1.65">');
+        inList = true;
+      }
+      htmlParts.push(`<li style="margin-bottom:6px">${escapeHtml(listMatch[1])}</li>`);
+      continue;
+    }
+    if (inList) {
+      htmlParts.push('</ul>');
+      inList = false;
+    }
+    paragraph.push(line);
+  }
+  flushParagraph();
+  if (inList) htmlParts.push('</ul>');
+  return htmlParts.join('');
 }
 
 function _buildUserGuideSections() {
@@ -13525,13 +13731,21 @@ function openUserGuideModal(initialSection = 'getting-started') {
   closeTransientMenus();
   closeUserGuideModal();
 
-  const sections = _buildUserGuideSections();
-  let activeSectionId = sections.some(section => section.id === initialSection) ? initialSection : sections[0].id;
+  let sections;
+  try {
+    sections = _buildUserGuideSections();
+  } catch (err) {
+    console.error('Failed to build User Guide sections:', err);
+    alert('Unable to open User Guide: ' + (err?.message || err));
+    return;
+  }
+  let activeSectionId = sections.some(section => section.id === initialSection) ? initialSection : sections[0]?.id;
+  if (!activeSectionId && sections.length) activeSectionId = sections[0].id;
 
   const overlay = document.createElement('div');
   overlay.style.position = 'fixed';
   overlay.style.inset = '0';
-  overlay.style.zIndex = '20070';
+  overlay.style.zIndex = '100100';
   overlay.style.background = 'rgba(6,10,14,0.62)';
   overlay.style.backdropFilter = 'blur(4px)';
   overlay.innerHTML = `
@@ -13601,6 +13815,17 @@ function openUserGuideModal(initialSection = 'getting-started') {
   overlay.focus();
   _userGuideOverlayEl = overlay;
   render();
+
+  _loadUserGuideReadmeSection().then(section => {
+    if (!section || !_userGuideOverlayEl) return;
+    if (!sections.some(s => s.id === section.id)) {
+      sections.unshift(section);
+      if (!sections.some(s => s.id === activeSectionId)) {
+        activeSectionId = section.id;
+      }
+      render();
+    }
+  });
 }
 
 const VERSION_HISTORY_LIMIT = 40;
@@ -20466,7 +20691,14 @@ document.querySelectorAll('.tool-btn[data-transform]').forEach(b => {
 
   // ── Help menu ──
   _registerMenu('menu-help', () => [
-    { label: '📘 User Guide',         shortcut: '',              action: () => openUserGuideModal() },
+    { label: '📘 User Guide',         shortcut: '',              action: () => {
+      try {
+        openUserGuideModal();
+      } catch (err) {
+        console.error('Failed to open User Guide:', err);
+        alert('Unable to open User Guide: ' + (err?.message || err));
+      }
+    } },
     '---',
     { label: '⌨ Keyboard Shortcuts', shortcut: '',              action: () => {
       alert(
@@ -20491,6 +20723,18 @@ document.querySelectorAll('.tool-btn[data-transform]').forEach(b => {
       alert('Flame3D — 3D Game Editor\nBuilt with Three.js v0.161.0');
     }},
   ]);
+
+  const settingsTopBtn = document.getElementById('menu-settings');
+  if (settingsTopBtn) {
+    settingsTopBtn.addEventListener('click', () => {
+      try {
+        openEditorSettingsModal();
+      } catch (err) {
+        console.error('Failed to open Settings:', err);
+        alert('Unable to open Settings: ' + (err?.message || err));
+      }
+    });
+  }
 }
 
 /* Library tooltips & sidebar .lib-btn handlers removed — library now lives in bottom panel */
@@ -21869,6 +22113,16 @@ function bindGroupProp(mesh) {
     const targets = getPropertyTargets(mesh);
     for (const t of targets) setMeshGroups(t, val);
     refreshPlayerProfileUI();
+  });
+}
+
+function bindMergedObjectProp(mesh) {
+  const btn = document.getElementById('prop-unmerge-merged-object');
+  if (!btn || state.selectedObject !== mesh) return;
+  btn.addEventListener('click', () => {
+    if (state.selectedObject === mesh && Array.isArray(mesh.userData._mergedOriginals) && mesh.userData._mergedOriginals.length > 0) {
+      unmergeSelectedObject();
+    }
   });
 }
 
@@ -23432,8 +23686,24 @@ function refreshProps() {
   const currentGroups = getMeshGroups(m);
   const groupOptions = renderDatalistOptions(getKnownGroups(currentGroups));
 
+  const mergedControls = Array.isArray(m.userData._mergedOriginals) && m.userData._mergedOriginals.length > 0
+    ? (() => {
+      const count = m.userData._mergedOriginals.length;
+      const preview = m.userData._mergedOriginals.slice(0, 5).map((orig, idx) => {
+        const label = escapeHtml(orig.label || orig.type || `Object ${idx + 1}`);
+        return `<div class="prop-row" style="padding-left:10px"><span class="prop-key">${label}</span><span class="prop-val" style="font-size:10px;color:var(--muted)">#${idx + 1}</span></div>`;
+      }).join('');
+      return `
+        <div class="prop-row"><span class="prop-key">Merged</span><span class="prop-val" style="color:#58a6ff">${count} objects</span></div>
+        <div class="prop-row"><span class="prop-key">Contents</span><div class="prop-controls"><button id="prop-unmerge-merged-object" type="button" style="font-size:10px;padding:2px 6px">Unmerge</button></div></div>
+        ${preview}
+        ${count > 5 ? `<div class="prop-row"><span class="prop-key">…</span><span class="prop-val" style="font-size:10px;color:var(--muted)">${count - 5} more</span></div>` : ''}
+      `;
+    })()
+    : '';
+
   const groupControls = true
-    ? `<div class="prop-row"><span class="prop-key">Groups</span><div class="prop-controls"><input id="prop-group" list="prop-group-options" type="text" value="${escapeHtml(currentGroups.join(', '))}" placeholder="default, teamA" style="width:150px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;font-family:inherit"/><datalist id="prop-group-options">${groupOptions}</datalist></div></div>`
+    ? `<div class="prop-row"><span class="prop-key">Groups</span><div class="prop-controls"><input id="prop-group" list="prop-group-options" type="text" value="${escapeHtml(currentGroups.join(', '))}" placeholder="default, teamA" style="width:150px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 5px;font-size:11px;font-family:inherit"/><datalist id="prop-group-options">${groupOptions}</datalist></div></div>${mergedControls}`
     : '';
 
   const canEditPath = !['spawn', 'checkpoint', 'trigger'].includes(m.userData.type);
@@ -23895,6 +24165,7 @@ function refreshProps() {
   if (hasLight) bindLightProps(m);
   if (!isLightType) bindEmitLightProps(m);
   bindGroupProp(m);
+  bindMergedObjectProp(m);
   if (canEditPath) bindMovementPathProps(m);
   if (isCheckpoint) bindCheckpointProps(m);
   if (isTeleport) bindTeleportProps(m);
@@ -24356,6 +24627,7 @@ document.addEventListener('keydown', (e) => {
   keybinds[action] = e.code;
   stopKeybindListening();
   updatePlayHint();
+  saveEditorSettings();
 }, true);
 document.addEventListener('mousedown', (e) => {
   if (!_keybindListeningBtn) return;
@@ -24366,6 +24638,7 @@ document.addEventListener('mousedown', (e) => {
     keybinds[action] = 'mouse' + e.button;
     stopKeybindListening();
     updatePlayHint();
+    saveEditorSettings();
     return;
   }
   // If clicking outside a keybind button and not awaiting mouse bind, stop listening
@@ -24379,6 +24652,7 @@ document.addEventListener('mousedown', (e) => {
     Object.assign(keybinds, DEFAULT_KEYBINDS);
     syncKeybindButtons();
     updatePlayHint();
+    saveEditorSettings();
   });
 }
 
@@ -25659,10 +25933,18 @@ const _portalCam = new THREE.PerspectiveCamera(75, 1, 0.1, 200);
 
 function _ensurePortalDisc(mesh, rtIndex) {
   if (mesh.userData._portalDisc) return mesh.userData._portalDisc;
-  const mat = new THREE.MeshBasicMaterial({ map: _portalRTs[rtIndex].texture, side: THREE.DoubleSide, transparent: true });
+  const mat = new THREE.MeshBasicMaterial({
+    map: _portalRTs[rtIndex].texture,
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+  });
   const disc = new THREE.Mesh(_portalDiscGeo, mat);
   disc.userData._isPortalDisc = true;
-  disc.renderOrder = 1;
+  disc.position.set(0, 0, 0.01);
+  disc.renderOrder = 9999;
+  disc.frustumCulled = false;
   mesh.add(disc);
   mesh.userData._portalDisc = disc;
   return disc;
@@ -25709,11 +25991,18 @@ function _renderPortalViews() {
     m.getWorldQuaternion(_portalSrcQuat);
     dest.getWorldQuaternion(_portalDestQuat);
 
-    _portalRelOffset.copy(_portalCamPos).sub(_portalSrcPos).applyQuaternion(_portalSrcQuat.clone().invert());
-    _portalCam.position.copy(_portalRelOffset.applyQuaternion(_portalDestQuat)).add(_portalDestPos);
+    fpsCam.updateMatrixWorld();
+    m.updateMatrixWorld();
+    dest.updateMatrixWorld();
 
-    _portalRelQuat.copy(_portalSrcQuat).invert().multiply(_portalViewQuat);
-    _portalCam.quaternion.copy(_portalDestQuat).multiply(_portalRelQuat);
+    const srcMatrix = m.matrixWorld;
+    const destMatrix = dest.matrixWorld;
+    const invSrc = new THREE.Matrix4().copy(srcMatrix).invert();
+    const relCam = new THREE.Matrix4().multiplyMatrices(invSrc, fpsCam.matrixWorld);
+    const mirror = new THREE.Matrix4().makeScale(1, 1, -1);
+    const portalCamMatrix = new THREE.Matrix4().multiplyMatrices(destMatrix, mirror).multiply(relCam);
+    portalCamMatrix.decompose(_portalCam.position, _portalCam.quaternion, _portalCam.scale);
+    _portalCam.scale.set(1, 1, 1);
     _portalCam.fov = fpsCam.fov;
     _portalCam.aspect = fpsCam.aspect;
     _portalCam.near = fpsCam.near;
