@@ -1,0 +1,14 @@
+I want you to make the user guide way more detailed.
+Give it sections like navigating the editor and each panel, eatch feature, each block and their uses, etc.
+
+Make it so I can control if the direction you point when you teleport to a portal. 
+
+The bug with the portal is still not fixed. There should be a "camera" INSIDE the portal, as if there is a person there. However, it works as if when you are looking through the portal, you are looking through a door. Your FOV in the portal expands the closer you get, looking at the portal from an angle should make the camera show you what is from that side. That only applies if you are standing at that angle, not if you just turn. I hope you know how this should work.
+
+For the camera controls, I want to be able to adjust the current preset for the camera, like make the camera act like you are a player (like in playtesting), have the pivot dot stay a certian distance away at all times no mater what, etc.
+
+Make it so that an option for the player functions is to activate a function.
+
+Im going to want to redo the editor layout later.
+
+Move any completed ideas to the "In-Testing" list.
