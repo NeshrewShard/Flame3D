@@ -129,3 +129,12 @@ I want to
 
 [DONE] Make an alert if you name an object as a name that already exists and change it back to what it had previously been.
 (Red border duplicate-name alert implemented on name input)
+
+- Improve portals
+
+- Add more useable variables and actions; Example: The ability to make cameras face the same direction as a player, orbit, etc.
+
+-More game settings: 
+    
+    Max/Min of variables
+    
